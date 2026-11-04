@@ -1,0 +1,125 @@
+name: strapi
+type: service
+from: node
+fromVersionConstraint: "^2.0.0"
+fromVersion: "2.1.3"
+guidance: GUIDANCE.md
+title: Node.js (Strapi)
+labels:
+- strapi
+- node
+# Uploaded media is kept on one ReadWriteOnce volume, which a single pod mounts.
+scalable: false
+
+env:
+- name: NODE_ENV
+  value: production
+  envType: dev
+- name: HOST
+  value: 0.0.0.0
+- name: PORT
+  value: '3000'
+- name: STRAPI_TELEMETRY_DISABLED
+  value: 'true'
+- name: APP_KEYS
+  value: '{{strapi_app_key_1}},{{strapi_app_key_2}}'
+  secret: true
+- name: API_TOKEN_SALT
+  value: '{{strapi_api_token_salt}}'
+  secret: true
+- name: ADMIN_JWT_SECRET
+  value: '{{strapi_admin_jwt_secret}}'
+  secret: true
+- name: TRANSFER_TOKEN_SALT
+  value: '{{strapi_transfer_token_salt}}'
+  secret: true
+- name: JWT_SECRET
+  value: '{{strapi_jwt_secret}}'
+  secret: true
+- name: ENCRYPTION_KEY
+  value: '{{strapi_encryption_key}}'
+  secret: true
+
+tokens:
+- name: strapi_app_key_1
+  generate:
+    regex: '[0-9a-f]{64}'
+- name: strapi_app_key_2
+  generate:
+    regex: '[0-9a-f]{64}'
+- name: strapi_api_token_salt
+  generate:
+    regex: '[0-9a-f]{64}'
+- name: strapi_admin_jwt_secret
+  generate:
+    regex: '[0-9a-f]{64}'
+- name: strapi_transfer_token_salt
+  generate:
+    regex: '[0-9a-f]{64}'
+- name: strapi_jwt_secret
+  generate:
+    regex: '[0-9a-f]{64}'
+- name: strapi_encryption_key
+  generate:
+    regex: '[0-9a-f]{64}'
+
+links:
+- name: db
+  env:
+  - name: DATABASE_URL
+    value: '{{link.database.url}}'
+    secret: true
+
+volumes:
+# Strapi's local upload provider writes media to public/uploads. The image links
+# that directory to /mnt/files, where this volume is mounted; the image's
+# entrypoint makes it writable for the node user. The volume stays outside
+# /usr/src/app, which a development workspace replaces with its checkout.
+- name: uploads
+  title: Uploads
+  size: 10
+  path: /mnt/files
+  helm:
+    values:
+    - name: extraVolumes
+      value:
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: '{{volumes.uploads.claim}}'
+    - name: extraVolumeMounts
+      value:
+      - name: uploads
+        mountPath: /mnt/files
+
+# A ReadWriteOnce volume cannot be attached to a new pod on another node while
+# the old pod still runs, so the old pod stops first. With one replica this
+# acts as the recreate strategy, which an inheriting service cannot select
+# while the Node.js service sets maxUnavailable and maxSurge.
+deployment:
+  strategy: rolling
+  maxUnavailable: 1
+  maxSurge: 0
+
+build:
+  dockerfile: Dockerfile
+  dockerignoreContent: |
+    .git
+    .wodby-ci-cache
+    .env
+    .tmp
+    .strapi
+    dist
+    build
+    public/uploads
+  connect: true
+  boilerplates:
+  - name: strapi
+    title: Strapi Boilerplate
+    repo: https://github.com/wodby/strapi-boilerplate
+    branch: main
+
+workspace:
+  # Strapi's generated admin entry, TypeScript and admin build output, its
+  # temporary directory and update check cache, and media uploaded in the
+  # workspace.
+  ignore: ['/.strapi/', '/dist/', '/build/', '/.tmp/', '/.strapi-updater.json', '/public/uploads/']
